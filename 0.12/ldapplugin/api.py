@@ -20,13 +20,19 @@
 # Requires Python-LDAP, available from http://python-ldap.sourceforge.net
 #
 
+import os
 import re
 import time
 import ldap
+from fnmatch import fnmatch
 
 from trac.core import *
-from trac.perm import IPermissionGroupProvider, IPermissionStore
-from trac.config import _TRUE_VALUES
+from trac.perm import IPermissionGroupProvider, IPermissionStore, IPermissionPolicy, PermissionSystem
+from trac.web.api import IRequestFilter
+from trac.config import _TRUE_VALUES, Option
+from trac.util.compat import set, groupby
+
+from configobj import ConfigObj
 
 LDAP_MODULE_CONFIG = [ 'enable', 'permfilter', 
                        'global_perms', 'manage_groups'
@@ -599,7 +605,7 @@ class LdapConnection(object):
                 return cr
         return False
 
-    def get_user_groups(self, username):
+    def get_user_groups(self, userdn):
         """Returns a list of all groups a user belongs to"""
         if self.groupmemberisdn:
             udn = userdn
