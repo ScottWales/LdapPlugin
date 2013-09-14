@@ -725,3 +725,103 @@ class LdapConnection(object):
             self._ds = False
             return False
     
+class LDAPAuthzPolicy(Component):
+    """
+    Add Authz support for LDAP groups
+    """
+    implements(IPermissionPolicy)
+
+    authz_file = Option('authz_policy', 'authz_file', None,
+                        'Location of authz policy configuration file.')
+
+    authz = None
+    authz_mtime = None
+
+    # IPermissionPolicy methods
+
+    def check_permission(self, action, username, resource, perm):
+        if self.authz_file and not self.authz_mtime or \
+                os.path.getmtime(self.get_authz_file()) > self.authz_mtime:
+            self.parse_authz()
+        resource_key = self.normalise_resource(resource)
+        self.log.debug('Checking %s on %s', action, resource_key)
+        permissions = self.authz_permissions(resource_key, username)
+        if permissions is None:
+            return None                 # no match, can't decide
+        elif permissions == ['']:
+            return False                # all actions are denied
+
+        # FIXME: expand all permissions once for all
+        ps = PermissionSystem(self.env)
+        for deny, perms in groupby(permissions,
+                                    key=lambda p: p.startswith('!')):
+            if deny and action in ps.expand_actions([p[1:] for p in perms]):
+                return False            # action is explicitly denied
+            elif action in ps.expand_actions(perms):
+                return True            # action is explicitly granted
+
+        return None                    # no match for action, can't decide
+
+    # Internal methods
+
+    def get_authz_file(self):
+        f = self.authz_file
+        return os.path.isabs(f) and f or os.path.join(self.env.path, f)
+
+    def parse_authz(self):
+        self.env.log.debug('Parsing authz security policy %s' %
+                           self.get_authz_file())
+        self.authz = ConfigObj(self.get_authz_file())
+        self.groups_by_user = {}
+        for group, users in self.authz.get('groups', {}).iteritems():
+            if isinstance(users, basestring):
+                users = [users]
+            for user in users:
+                self.groups_by_user.setdefault(user, set()).add('@' + group)
+        self.authz_mtime = os.path.getmtime(self.get_authz_file())
+
+    def normalise_resource(self, resource):
+        def flatten(resource):
+            if not resource or not (resource.realm or resource.id):
+                return []
+            # XXX Due to the mixed functionality in resource we can end up with
+            # ticket, ticket:1, ticket:1@10. This code naively collapses all
+            # subsets of the parent resource into one. eg. ticket:1@10
+            parent = resource.parent
+            while parent and (resource.realm == parent.realm or \
+                    (resource.realm == parent.realm and resource.id == parent.id)):
+                parent = parent.parent
+            if parent:
+                parent = flatten(parent)
+            else:
+                parent = []
+            return parent + ['%s:%s@%s' % (resource.realm or '*',
+                                           resource.id or '*',
+                                           resource.version or '*')]
+        return '/'.join(flatten(resource))
+
+    def authz_permissions(self, resource_key, username):
+        # TODO: Handle permission negation in sections. eg. "if in this
+        # ticket, remove TICKET_MODIFY"
+        valid_users = ['*', 'anonymous']
+        if username and username != 'anonymous':
+            valid_users += ['authenticated', username]
+            valid_users += LdapPermissionGroupProvider(self.env).get_permission_groups(username)
+        for resource_section in [a for a in self.authz.sections
+                                 if a != 'groups']:
+            resource_glob = resource_section
+            if '@' not in resource_glob:
+                resource_glob += '@*'
+
+            if fnmatch(resource_key, resource_glob):
+                section = self.authz[resource_section]
+                for who, permissions in section.iteritems():
+                    if who in valid_users or \
+                            who in self.groups_by_user.get(username, []):
+                        self.env.log.debug('%s matched section %s for user %s'
+                                % (resource_key, resource_glob, username))
+                        if isinstance(permissions, basestring):
+                            return [permissions]
+                        else:
+                            return permissions
+        return None
