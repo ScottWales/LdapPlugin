@@ -44,6 +44,48 @@ GROUP_PREFIX = '@'
 # regular expression to explode a DN into a (attr, rdn, basedn)
 DN_RE = re.compile(r'^(?P<attr>.+?)=(?P<rdn>.+?),(?P<base>.+)$')
 
+class LdapRequestFilter(Component):
+    """
+    Sets default common name and email from LDAP
+    """
+    implements(IRequestFilter)
+
+    def __init__(self, ldap=None):
+        # Check if LDAP is enabled:
+        self.enabled = self.config.getbool('ldap', 'enable')
+        if not self.enabled:
+            return
+        self.util = LdapUtil(self.config)
+        # LDAP connection
+        self._ldap = ldap
+        # LDAP connection config
+        self._ldapcfg = {}
+        for name,value in self.config.options('ldap'):
+            if name in LDAP_DIRECTORY_PARAMS:
+                self._ldapcfg[str(name)] = value
+
+    def pre_process_request(self, req, handler):
+        return handler
+
+    def post_process_request(self, req, template, data, content_type):
+        if not self.enabled:
+            return template, data, content_type
+        if req.authname == 'anonymous' or req.session.has_key('email'):
+            return template, data, content_type
+
+        # Request cn & mail from LDAP
+        if not self._ldap:
+            # new LDAP connection
+            bind = self.config.getbool('ldap', 'group_bind')
+            self._ldap = LdapConnection(self.env.log, bind, **self._ldapcfg)
+        uid = self.util.create_dn(req.authname.encode('ascii'))
+        name = self._ldap.get_attribute(uid, 'cn')
+        email = self._ldap.get_attribute(uid, 'mail')
+
+        # Store the information in the session
+        req.session['name'] = name
+        req.session['email'] = email
+
 class LdapPermissionGroupProvider(Component):
     """
     Provides permission groups from a LDAP directory
