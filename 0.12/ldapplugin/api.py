@@ -85,6 +85,7 @@ class LdapRequestFilter(Component):
         # Store the information in the session
         req.session['name'] = name
         req.session['email'] = email
+        return template, data, content_type
 
 class LdapPermissionGroupProvider(Component):
     """
