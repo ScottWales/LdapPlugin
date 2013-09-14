@@ -79,8 +79,8 @@ class LdapRequestFilter(Component):
             bind = self.config.getbool('ldap', 'group_bind')
             self._ldap = LdapConnection(self.env.log, bind, **self._ldapcfg)
         uid = self.util.create_dn(req.authname.encode('ascii'))
-        name = self._ldap.get_attribute(uid, 'cn')
-        email = self._ldap.get_attribute(uid, 'mail')
+        name = self._ldap.get_attribute(uid, 'cn')[0]
+        email = self._ldap.get_attribute(uid, 'mail')[0]
 
         # Store the information in the session
         req.session['name'] = name
