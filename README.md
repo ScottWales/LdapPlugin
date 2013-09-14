@@ -12,5 +12,5 @@ The LDAP configuration works the same as the original LDAP plugin.
 LDAP authz permissions require the full dn for the group, e.g.:
 
     [repository:*]
-    cn=repoview,ou=Groups,dc=example,dc=com = BROWSER_VIEW
+    "cn=repoview,ou=Groups,dc=example,dc=com" = BROWSER_VIEW
     * = 
