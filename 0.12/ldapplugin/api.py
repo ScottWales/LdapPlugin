@@ -744,6 +744,89 @@ class LDAPAuthzPolicy(Component):
     authz = None
     authz_mtime = None
 
+    def __init__(self, ldap=None):
+        # looks for groups only if LDAP support is enabled
+        self.enabled = self.config.getbool('ldap', 'enable')
+        if not self.enabled:
+            return
+        self.util = LdapUtil(self.config)
+        # LDAP connection
+        self._ldap = ldap
+        # LDAP connection config
+        self._ldapcfg = {}
+        for name,value in self.config.options('ldap'):
+            if name in LDAP_DIRECTORY_PARAMS:
+                self._ldapcfg[str(name)] = value
+        # user entry local cache
+        self._cache = {}
+        # max time to live for a cache entry
+        self._cache_ttl = int(self.config.get('ldap', 'cache_ttl', str(15*60)))
+        # max cache entries
+        self._cache_size = min(25, int(self.config.get('ldap', 'cache_size', 
+                                                       '100')))
+
+    def get_permission_groups(self, username):
+        """Return a list of names of the groups that the user with the 
+        specified name is a member of."""
+
+        # anonymous and authenticated groups are set with the default provider
+        groups = []
+        if not self.enabled:
+            return groups
+                        
+        # stores the current time for the request (used for the cache)
+        current_time = time.time()
+        
+        # test for if username in the cache
+        if username in self._cache:
+            # cache hit
+            lut, groups = self._cache[username]
+        
+            # ensures that the cache is not too old
+            if current_time < lut+self._cache_ttl:
+                # sources the cache
+                # cache lut is not updated to ensure
+                # it is refreshed on a regular basis
+                self.env.log.debug('cached (%s): %s' % \
+                                   (username, ','.join(groups)))
+                return groups
+        
+        # cache miss (either not found or too old)
+        if not self._ldap:
+            # new LDAP connection
+            bind = self.config.getbool('ldap', 'group_bind')
+            self._ldap = LdapConnection(self.env.log, bind, **self._ldapcfg)
+        
+        # retrieves the user groups from LDAP
+        ldapgroups = self._ldap.get_user_groups(username)
+        # if some group is found
+        if ldapgroups:
+            # tests for cache size
+            if len(self._cache) >= self._cache_size:
+                # the cache is becoming too large, discards
+                # the less recently uses entries
+                cache_keys = self._cache.keys()
+                cache_keys.sort(lambda x,y: cmp(self._cache[x][0], 
+                                                self._cache[y][0]))
+                # discards the 5% oldest
+                old_keys = cache_keys[:(5*self._cache_size)/100]
+                for k in old_keys:
+                    del self._cache[k]
+        else:
+            # deletes the cache if there's no group for this user
+            # for debug, until a failed LDAP connection returns an error...
+            if username in self._cache:
+                del self._cache[username]
+        
+        # updates the cache
+        self._cache[username] = [current_time, ldapgroups]
+        
+        # returns the user groups
+        groups.extend(ldapgroups)
+        if groups:
+            self.env.log.debug('groups: ' + ','.join(groups))
+
+        return groups
     # IPermissionPolicy methods
 
     def check_permission(self, action, username, resource, perm):
@@ -813,7 +896,7 @@ class LDAPAuthzPolicy(Component):
         valid_users = ['*', 'anonymous']
         if username and username != 'anonymous':
             valid_users += ['authenticated', username]
-            valid_users += LdapPermissionGroupProvider(self.env).get_permission_groups(username)
+            valid_users += get_permission_groups(username)
         for resource_section in [a for a in self.authz.sections
                                  if a != 'groups']:
             resource_glob = resource_section
