@@ -106,7 +106,7 @@ class LdapPermissionGroupProvider(Component):
             self._ldap = LdapConnection(self.env.log, bind, **self._ldapcfg)
         
         # retrieves the user groups from LDAP
-        ldapgroups = self._get_user_groups(username)
+        ldapgroups = self._ldap.get_user_groups(username)
         # if some group is found
         if ldapgroups:
             # tests for cache size
@@ -143,20 +143,6 @@ class LdapPermissionGroupProvider(Component):
         elif self._cache.has_key(username):
             del self._cache[username]
         
-    # Private API
-    
-    def _get_user_groups(self, username):
-        """Returns a list of all groups a user belongs to"""
-        ldap_groups = self._ldap.get_groups()
-        groups = []
-        for group in ldap_groups:
-            if self._ldap.is_in_group(self.util.user_attrdn(username), group):
-                m = DN_RE.search(group)
-                if m:
-                    groupname = GROUP_PREFIX + m.group('rdn')
-                    if groupname not in groups:
-                        groups.append(groupname)
-        return groups
 
 class LdapPermissionStore(Component):
     """
@@ -569,6 +555,20 @@ class LdapConnection(object):
             if self._ds:
                 return cr
         return False
+
+    def get_user_groups(self, username):
+        """Returns a list of all groups a user belongs to"""
+        if self.groupmemberisdn:
+            udn = userdn
+        else:
+            m = re.match('[^=]+=([^,]+)', userdn)
+            if m is None:
+                self.log.warn('Malformed userdn: %s' % userdn)
+                return False
+            udn = m.group(1)
+        filter = "(&(objectclass=%s)(%s=%s))"%(self.groupname, self.groupmember,udn)
+        groups = self.get_dn(self.basedn, filter)
+        return groups
 
     def get_dn(self, basedn, filterstr):
         """Return a list of dns that satisfy the LDAP filter"""
