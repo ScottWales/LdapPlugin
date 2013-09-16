@@ -896,7 +896,7 @@ class LDAPAuthzPolicy(Component):
         valid_users = ['*', 'anonymous']
         if username and username != 'anonymous':
             valid_users += ['authenticated', username]
-            valid_users += get_permission_groups(username)
+            valid_users += self.get_permission_groups(username)
         for resource_section in [a for a in self.authz.sections
                                  if a != 'groups']:
             resource_glob = resource_section
