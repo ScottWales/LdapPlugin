@@ -38,7 +38,7 @@ LDAP_MODULE_CONFIG = [ 'enable', 'permfilter',
                        'global_perms', 'manage_groups'
                        'cache_ttl', 'cache_size',
                        'group_bind', 'store_bind',
-                       'user_rdn', 'group_rdn' ]
+                       'user_rdn', 'group_rdn', 'email_domain' ]
 
 LDAP_DIRECTORY_PARAMS = [ 'host', 'port', 'use_tls', 'basedn',
                           'bind_user', 'bind_passwd',
@@ -86,7 +86,12 @@ class LdapRequestFilter(Component):
             self._ldap = LdapConnection(self.env.log, bind, **self._ldapcfg)
         uid = self.util.create_dn(req.authname.encode('ascii'))
         name = self._ldap.get_attribute(uid, 'cn')[0]
-        email = self._ldap.get_attribute(uid, 'mail')[0]
+
+        emaildomain = self.config.get('ldap','email_domain','')
+        if emaildomain:
+            email = uid + '@' + emaildomain
+        else:
+            email = self._ldap.get_attribute(uid, 'mail')[0]
 
         # Store the information in the session
         req.session['name'] = name
