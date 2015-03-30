@@ -3,7 +3,7 @@
 from setuptools import setup, find_packages
 
 PACKAGE = 'LdapPlugin'
-VERSION = '0.7.0'
+VERSION = '0.7.1'
 
 setup (
     name = PACKAGE,
