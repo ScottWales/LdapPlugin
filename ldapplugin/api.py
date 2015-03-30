@@ -84,14 +84,15 @@ class LdapRequestFilter(Component):
             # new LDAP connection
             bind = self.config.getbool('ldap', 'group_bind')
             self._ldap = LdapConnection(self.env.log, bind, **self._ldapcfg)
-        uid = self.util.create_dn(req.authname.encode('ascii'))
-        name = self._ldap.get_attribute(uid, 'cn')[0]
+        dn = self.util.create_dn(req.authname.encode('ascii'))
+        name = self._ldap.get_attribute(dn, 'cn')[0]
+        uid = self._ldap.get_attribute(dn, 'uid')[0]
 
         emaildomain = self.config.get('ldap','email_domain','')
         if emaildomain:
             email = uid + '@' + emaildomain
         else:
-            email = self._ldap.get_attribute(uid, 'mail')[0]
+            email = self._ldap.get_attribute(dn, 'mail')[0]
 
         # Store the information in the session
         req.session['name'] = name
